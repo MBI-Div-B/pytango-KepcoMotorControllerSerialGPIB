@@ -20,6 +20,11 @@ class KepcoSerialGPIB(Device):
         default_value=115200,
     )
 
+    Address = device_property(
+        dtype=str,
+        doc='GPIB device address, e.g., 6'
+    )
+
     # ----------
     # Attributes
     # ----------
@@ -36,7 +41,7 @@ class KepcoSerialGPIB(Device):
     # ---------------
     
     def init_device(self):
-        self.info_stream("init_device()")
+        self.info_stream("Device initialization...")
         Device.init_device(self)
         self.set_state(DevState.INIT)
 
@@ -54,23 +59,21 @@ class KepcoSerialGPIB(Device):
         # open serial port
         try:
             self.serial.open()
-            self.info_stream("Connected to {:s}".format(self.Port))
+            self.info_stream("Connected to serial port {:s}".format(self.Port))
 
-            self.serial.write("++addr 6\n".encode("utf-8"))
+            self.serial.write("++addr "+self.Address+"\n".encode("utf-8"))
             time.sleep(0.05)
 
-            self.info_stream("Kepco Initialization")
+            self.info_stream("Looking for GPIB device...")
             self.serial.write("*IDN?\n".encode("utf-8"))
             #self.serial.flush()
             time.sleep(0.05)
-            idn = self.serial.read_all()
-            idn = idn.decode("utf-8")
+            self.idn = self.serial.read_all().decode("utf-8")
 
-            if idn:
-                self.info_stream(idn)
-                self.info_stream("Kepco is initialized!")
+            if self.idn:
+                self.info_stream(self.idn)
+                self.info_stream("GPIB device found. Initializing power supply...")
 
-                self.info_stream("Setting parameters...")
                 self.serial.write("FUNC:MODE CURR\n".encode("utf-8"))
                 #self.serial.flush()
                 time.sleep(0.05)
@@ -90,47 +93,53 @@ class KepcoSerialGPIB(Device):
                 res = self.serial.read_all()
                 res = res.decode("utf-8")
 
-                self.info_stream("Parameters set!")
+                self.info_stream("Power supply is initialized!")
                 
                 self._isMoving = False
                 self._moveStartTime = None
-                self._threshold = 0.1
+                self._threshold = 0.02
                 self._target = None
                 self._timeout = 10
 
                 self.set_state(DevState.ON)
+                self.set_status(self.idn+"Power supply is in ON state.")
             else:
-                self.error_stream("Kepco could NOT be initialized!")
+                self.error_stream("No GPIB device found!")
                 self.set_state(DevState.FAULT)
+                self.set_status("No GPIB device found!")
         except:
-            self.error_stream("Failed to communicate with {:s}".format(self.Port))
+            self.error_stream("Failed to open serial communication with {:s}".format(self.Port))
             self.set_state(DevState.FAULT)
+            self.set_status("Failed to open serial communication with {:s}".format(self.Port))
 
     def always_executed_hook(self):
         pass
 
     def dev_state(self):
-        pos = self.current
+        pos = self.read_current()
         now = time.time()
         
         if self._isMoving == False:
+           self.set_status(self.idn+"Power supply is in ON state.")
            return DevState.ON
         elif self._isMoving:
             if (abs(pos-self._target) > self._threshold):
                 # moving and not in threshold window
                 if (now-self._moveStartTime) < self._timeout:
                     # before timeout
+                    self.set_status(self.idn+"Power supply is in MOVING state.")
                     return DevState.MOVING
                 else:
                     # after timeout
-                    self.error_stream("Kepco Timeout")
-                    self._isMoving = False
-                    self.set_state(DevState.ON)
+                    self.error_stream("Power supply timeout")
+                    #self._isMoving = False
+                    self.set_status(self.idn+"Timeout occurred! Power supply is in ALARM state.")
+                    return DevState.ALARM
             elif (abs(pos-self._target) <= self._threshold):
                 self._isMoving = False
                 return DevState.ON
         else:
-            return DevState.FAULT
+            return DevState.ON
 
     def delete_device(self):
         self.serial.close()
