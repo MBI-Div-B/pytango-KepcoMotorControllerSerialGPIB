@@ -5,14 +5,14 @@ from sardana.pool.controller import MotorController
 from sardana.pool.controller import Type, Description, DefaultValue
 
 
-class KepcoMotorControllerSerialGPIB(MotorController):
+class KepcoSerialGPIB(MotorController):
     ctrl_properties = {'Port': {Type: str, Description: 'ttyDevice', DefaultValue: '/dev/ttyKepco'}}
     
     MaxDevice = 1
     
     def __init__(self, inst, props, *args, **kwargs):
         #super(kepcoController, self).__init__(
-        super(KepcoMotorControllerSerialGPIB, self).__init__(
+        super(KepcoSerialGPIB, self).__init__(
             inst, props, *args, **kwargs)
 
         # connection settings
