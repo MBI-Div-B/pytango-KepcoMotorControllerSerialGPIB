@@ -1,13 +1,23 @@
-# Template for a Tango Device Server
-This is a template for what your Readme for a Tango Device Server should look like. This first abstract should summarize what your Tango DS is for.
-Direct further documentation of classes or methods used to the <em>docs</em> folder. Make sure the manuals you upload to <em>manuals</em> are freely accessible. 
+# pytango-KepcoMotorControllerSerialGPIB
+This a PyTango device server for controlling Kepco power supplies using Serial-to-GPIB-adapters. It uses the standard command strings needed for controlling a Kepco GPIB power supply, but sends them to a serial ttyDevice instead of a real GPIB port. It thus allows converting a GPIB-controllable Kepco to a serial device.
 
-## Installation
-Describe how to install necessary packages (maybe drivers) needed for your Tango DS. Maybe it is needed to install by <code>pip3</code> or clone and install from another git.
+# Installation
+## USB Serial converter
+Create a udev rule in order to mount the USB Serial converter always under the same link, e.g. ```/dev/ttyKepco```.
 
-## Configuration
-(Optional)  
-Add some configuration details that need to be set up when registering the Server (which device properties to declare etc.).
+First check the VendorID, ProductID, and SerialNumber using ```dmesg```. Then add a new udev rule:
+```
+sudo nano /etc/udev/rules.d/55-usbcom.rules
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", ATTRS{serial}=="PX4UALD3", SYMLINK+="ttyKepco", MODE="0666"
+```
+Reload and apply the udev rule by
+```
+sudo udevadm control --reload
+sudo udevadm trigger --action=add
+```
+
+## Serial-to-GPIB adapter
+The PyTango device server does not allow to configure parameters specific to the GPIB protocol. This has to be done before in the respective Serial-to-GPIB adapters, which usually allow to set its own GPIB address as well the address it will talk to, as well as other parameters via specific control strings or via a configuration utility provided by the manufacturer. Don't forget to save the parameters in the adapters non-volatile memory.
 
 ## Authors
-Refer to your organization and leave some contact details of how to reach you in case there are any questions. 
+Martin Hennecke
