@@ -61,7 +61,7 @@ class KepcoSerialGPIB(Device):
             self.serial.open()
             self.info_stream("Connected to serial port {:s}".format(self.Port))
 
-            self.serial.write("++addr "+self.Address+"\n".encode("utf-8"))
+            self.serial.write(("++addr "+self.Address+"\n").encode("utf-8"))
             time.sleep(0.05)
 
             self.info_stream("Looking for GPIB device...")
