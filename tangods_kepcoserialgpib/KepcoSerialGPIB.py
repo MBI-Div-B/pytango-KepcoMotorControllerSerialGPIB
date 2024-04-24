@@ -1,153 +1,164 @@
+#!/usr/bin/python3 -u
+# coding: utf8
+from tango import AttrWriteType, DevState, DispLevel
+from tango.server import Device, attribute, command, device_property
+
 import serial, time
 
-from sardana import State
-from sardana.pool.controller import MotorController
-from sardana.pool.controller import Type, Description, DefaultValue
+class KepcoSerialGPIB(Device):
+    # -----------------
+    # Device Properties
+    # -----------------
 
+    Port = device_property(
+        dtype=str,
+        doc='e.g., /dev/ttyKepco'
+    )
 
-class KepcoSerialGPIB(MotorController):
-    ctrl_properties = {'Port': {Type: str, Description: 'ttyDevice', DefaultValue: '/dev/ttyKepco'}}
-    
-    MaxDevice = 1
-    
-    def __init__(self, inst, props, *args, **kwargs):
-        #super(kepcoController, self).__init__(
-        super(KepcoSerialGPIB, self).__init__(
-            inst, props, *args, **kwargs)
+    Baudrate = device_property(
+        dtype=int,
+        default_value=115200,
+    )
 
-        # connection settings
-        BAUDRATE = 115200
-        PARITY = serial.PARITY_NONE # serial.PARITY_NONE, serial.PARITY_ODD, serial.PARITY_EVEN
-        FLOWCONTROL = "none" # "none", "software", "hardware", "sw/hw"
-        TIMEOUT = 0
-        BYTESIZE = 8
-        STOPBITS = 1
+    # ----------
+    # Attributes
+    # ----------
+
+    current = attribute(
+        label="current",
+        dtype=float,
+        access=AttrWriteType.READ_WRITE,
+        unit="A",
+    )
     
+    # ---------------
+    # General methods
+    # ---------------
+    
+    def init_device(self):
+        self.info_stream("init_device()")
+        Device.init_device(self)
+        self.set_state(DevState.INIT)
+
         # configure serial
         self.serial = serial.Serial()
-        self.serial.baudrate = BAUDRATE
+        self.serial.baudrate = self.Baudrate
         self.serial.port = self.Port
-        self.serial.parity = PARITY
-        self.serial.bytesize = BYTESIZE
-        self.serial.stopbits = STOPBITS
-        self.serial.timeout = TIMEOUT
-
-        if FLOWCONTROL == "none":
-            self.serial.xonxoff = 0
-            self.serial.rtscts = 0
-        elif FLOWCONTROL == "software":
-            self.serial.xonxoff = 1
-            self.serial.rtscts = 0
-        elif FLOWCONTROL == "hardware":
-            self.serial.xonxoff = 0
-            self.serial.rtscts = 1
-        elif FLOWCONTROL == "sw/hw":
-            self.serial.xonxoff = 1
-            self.serial.rtscts = 1
+        self.serial.parity = serial.PARITY_NONE
+        self.serial.bytesize = 8
+        self.serial.stopbits = 1
+        self.serial.timeout = 0
+        self.serial.xonxoff = 0
+        self.serial.rtscts = 0
 
         # open serial port
-        self.serial.open()
-        
-        self.serial.write("++addr 6\n".encode("utf-8"))
-        time.sleep(0.05)
-        
-        print ('Kepco Initialization')
-        self.serial.write("*IDN?\n".encode("utf-8"))
-        #self.serial.flush()
-        time.sleep(0.05)
-        idn = self.serial.read_all()
-        idn = idn.decode("utf-8")
+        try:
+            self.serial.open()
+            self.info_stream("Connected to {:s}".format(self.Port))
 
-        if idn:
-            print (idn)
-            print ('Kepco is initialized!')
-        else:
-            print ('Kepco is NOT initialized!')
-        # initialize hardware communication        
-        self._motors = {}
-        self._isMoving = False
-        self._moveStartTime = None
-        self._threshold = 0.1
-        self._target = None
-        self._timeout = 10
+            self.serial.write("++addr 6\n".encode("utf-8"))
+            time.sleep(0.05)
 
-    def AddDevice(self, axis):
-        self._motors[axis] = True
-        self.serial.write("FUNC:MODE CURR\n".encode("utf-8"))
-        #self.serial.flush()
-        time.sleep(0.05)
-        self.serial.write("CURR:MODE FIX\n".encode("utf-8"))
-        #self.serial.flush()
-        time.sleep(0.05)
-        self.serial.write("CURR:LIM:NEG 5\n".encode("utf-8"))
-        #self.serial.flush()
-        time.sleep(0.05)
-        self.serial.write("CURR:LIM:POS 5\n".encode("utf-8"))
-        #self.serial.flush()
-        time.sleep(0.05)
-        self.serial.write("OUTP ON\n".encode("utf-8"))
-        #self.serial.flush()
-        time.sleep(0.05)
-        
-        res = self.serial.read_all()
-        res = res.decode("utf-8")
+            self.info_stream("Kepco Initialization")
+            self.serial.write("*IDN?\n".encode("utf-8"))
+            #self.serial.flush()
+            time.sleep(0.05)
+            idn = self.serial.read_all()
+            idn = idn.decode("utf-8")
 
-    def DeleteDevice(self, axis):
-        
-        # close serial port
-        self.serial.close()
-        
-        del self._motors[axis]
+            if idn:
+                self.info_stream(idn)
+                self.info_stream("Kepco is initialized!")
 
-    def StateOne(self, axis):
-        limit_switches = MotorController.NoLimitSwitch
-        pos = self.ReadOne(axis)
+                self.info_stream("Setting parameters...")
+                self.serial.write("FUNC:MODE CURR\n".encode("utf-8"))
+                #self.serial.flush()
+                time.sleep(0.05)
+                self.serial.write("CURR:MODE FIX\n".encode("utf-8"))
+                #self.serial.flush()
+                time.sleep(0.05)
+                self.serial.write("CURR:LIM:NEG 5\n".encode("utf-8"))
+                #self.serial.flush()
+                time.sleep(0.05)
+                self.serial.write("CURR:LIM:POS 5\n".encode("utf-8"))
+                #self.serial.flush()
+                time.sleep(0.05)
+                self.serial.write("OUTP ON\n".encode("utf-8"))
+                #self.serial.flush()
+                time.sleep(0.05)
+                
+                res = self.serial.read_all()
+                res = res.decode("utf-8")
+
+                self.info_stream("Parameters set!")
+                
+                self._isMoving = False
+                self._moveStartTime = None
+                self._threshold = 0.1
+                self._target = None
+                self._timeout = 10
+
+                self.set_state(DevState.ON)
+            else:
+                self.error_stream("Kepco could NOT be initialized!")
+                self.set_state(DevState.FAULT)
+        except:
+            self.error_stream("Failed to communicate with {:s}".format(self.Port))
+            self.set_state(DevState.FAULT)
+
+    def always_executed_hook(self):
+        pass
+
+    def dev_state(self):
+        pos = self.current
         now = time.time()
         
         if self._isMoving == False:
-            state = State.On
+           return DevState.ON
         elif self._isMoving:
             if (abs(pos-self._target) > self._threshold):
                 # moving and not in threshold window
                 if (now-self._moveStartTime) < self._timeout:
                     # before timeout
-                    state = State.Moving
+                    return DevState.MOVING
                 else:
                     # after timeout
-                    self._log.warning('Kepco Timeout')
+                    self.error_stream("Kepco Timeout")
                     self._isMoving = False
-                    state = State.On
+                    self.set_state(DevState.ON)
             elif (abs(pos-self._target) <= self._threshold):
                 self._isMoving = False
-                state = State.On
+                return DevState.ON
         else:
-            state = State.Fault
-        
-        return state, 'some text', limit_switches
+            return DevState.FAULT
 
-    def ReadOne(self, axis):
+    def delete_device(self):
+        self.serial.close()
+        self.set_state(DevState.OFF)
+
+    # ------------------
+    # Attributes methods
+    # ------------------
+
+    def read_current(self):
         self.serial.write("MEAS:CURR?\n".encode("utf-8"))
         #self.serial.flush()
         time.sleep(0.05)
         res = self.serial.read_all()
         res = res.decode("utf-8")
         return float(res)
-
-    def StartOne(self, axis, position):
+    
+    def write_current(self, value):
         self._moveStartTime = time.time()
         self._isMoving = True
-        self._target = position
-        cmd = 'CURR {:f}'.format(position)+'\n'
+        self._target = value
+        cmd = 'CURR {:f}'.format(value)+'\n'
         self.serial.write(cmd.encode("utf-8"))
         #self.serial.flush()
         time.sleep(0.05)
         res = self.serial.read_all()
         res = res.decode("utf-8")
 
-    def StopOne(self, axis):
-        pass
-
-    def AbortOne(self, axis):
-        pass
-
-    
+# start the server
+if __name__ == "__main__":
+    KepcoSerialGPIB.run_server()
