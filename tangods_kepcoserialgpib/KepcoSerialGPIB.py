@@ -191,7 +191,6 @@ class KepcoSerialGPIB(Device):
             line = self.serial.readline().decode("utf-8")
             res += line
             if (time.time()-timestamp) > 1:
-                print("timeout")
                 self.set_state(DevState.OFF)
                 self.set_status("Power supply is in OFF state.")
                 break
