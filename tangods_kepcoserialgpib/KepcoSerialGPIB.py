@@ -56,17 +56,27 @@ class KepcoSerialGPIB(Device):
         self.serial.xonxoff = 0
         self.serial.rtscts = 0
 
+        # initialize local variables
+        self._isMoving = False
+        self._moveStartTime = time.time()
+        self._threshold = 0.02
+        self._target = 0
+        self._timeout = 10
+
         # open serial port
         try:
+            if self.serial.isOpen():
+                self.serial.close()
             self.serial.open()
+
             self.info_stream("Connected to serial port {:s}".format(self.Port))
 
             self.serial.write(("++addr "+self.Address+"\n").encode("utf-8"))
-            time.sleep(0.05)
+            self.serial.flush()
 
             self.info_stream("Looking for GPIB device...")
             self.serial.write("*IDN?\n".encode("utf-8"))
-            #self.serial.flush()
+            self.serial.flush()
             time.sleep(0.05)
             self.idn = self.serial.read_all().decode("utf-8")
 
@@ -75,38 +85,32 @@ class KepcoSerialGPIB(Device):
                 self.info_stream("GPIB device found. Initializing power supply...")
 
                 self.serial.write("FUNC:MODE CURR\n".encode("utf-8"))
-                #self.serial.flush()
+                self.serial.flush()
                 time.sleep(0.05)
                 self.serial.write("CURR:MODE FIX\n".encode("utf-8"))
-                #self.serial.flush()
+                self.serial.flush()
                 time.sleep(0.05)
                 self.serial.write("CURR:LIM:NEG 5\n".encode("utf-8"))
-                #self.serial.flush()
+                self.serial.flush()
                 time.sleep(0.05)
                 self.serial.write("CURR:LIM:POS 5\n".encode("utf-8"))
-                #self.serial.flush()
+                self.serial.flush()
                 time.sleep(0.05)
                 self.serial.write("OUTP ON\n".encode("utf-8"))
-                #self.serial.flush()
+                self.serial.flush()
                 time.sleep(0.05)
                 
                 res = self.serial.read_all()
                 res = res.decode("utf-8")
 
                 self.info_stream("Power supply is initialized!")
-                
-                self._isMoving = False
-                self._moveStartTime = None
-                self._threshold = 0.02
-                self._target = None
-                self._timeout = 10
 
                 self.set_state(DevState.ON)
                 self.set_status(self.idn+"Power supply is in ON state.")
             else:
-                self.error_stream("No GPIB device found!")
-                self.set_state(DevState.FAULT)
-                self.set_status("No GPIB device found!")
+                self.error_stream("Power supply is in OFF state.")
+                self.set_state(DevState.OFF)
+                self.set_status("Power supply is in OFF state.")
         except:
             self.error_stream("Failed to open serial communication with {:s}".format(self.Port))
             self.set_state(DevState.FAULT)
@@ -116,13 +120,15 @@ class KepcoSerialGPIB(Device):
         pass
 
     def dev_state(self):
-        pos = self.read_current()
-        now = time.time()
-        
+        if self.get_state() == DevState.OFF:
+            return DevState.OFF
+
         if self._isMoving == False:
-           self.set_status(self.idn+"Power supply is in ON state.")
-           return DevState.ON
-        elif self._isMoving:
+            self.set_status(self.idn+"Power supply is in ON state.")
+            return DevState.ON
+        else:
+            pos = self.read_current()
+            now = time.time()
             if (abs(pos-self._target) > self._threshold):
                 # moving and not in threshold window
                 if (now-self._moveStartTime) < self._timeout:
@@ -138,8 +144,6 @@ class KepcoSerialGPIB(Device):
             elif (abs(pos-self._target) <= self._threshold):
                 self._isMoving = False
                 return DevState.ON
-        else:
-            return DevState.ON
 
     def delete_device(self):
         self.serial.close()
@@ -150,23 +154,47 @@ class KepcoSerialGPIB(Device):
     # ------------------
 
     def read_current(self):
+        if self.get_state() == DevState.OFF:
+            return None
+
         self.serial.write("MEAS:CURR?\n".encode("utf-8"))
-        #self.serial.flush()
-        time.sleep(0.05)
-        res = self.serial.read_all()
-        res = res.decode("utf-8")
+
+        res = ""
+        timestamp = time.time()
+        while not "\n" in res:
+            self.serial.flush()
+            line = self.serial.readline().decode("utf-8")
+            res += line
+            if (time.time()-timestamp) > 1:
+                self.set_state(DevState.OFF)
+                self.set_status("Power supply is in OFF state.")
+                return None
+
         return float(res)
     
     def write_current(self, value):
+        if self.get_state() == DevState.OFF:
+            self.init_device()
+            if self.get_state() != DevState.ON:
+                return None
+
         self._moveStartTime = time.time()
         self._isMoving = True
         self._target = value
         cmd = 'CURR {:f}'.format(value)+'\n'
         self.serial.write(cmd.encode("utf-8"))
-        #self.serial.flush()
-        time.sleep(0.05)
-        res = self.serial.read_all()
-        res = res.decode("utf-8")
+
+        res = ""
+        timestamp = time.time()
+        while not "\n" in res:
+            self.serial.flush()
+            line = self.serial.readline().decode("utf-8")
+            res += line
+            if (time.time()-timestamp) > 1:
+                print("timeout")
+                self.set_state(DevState.OFF)
+                self.set_status("Power supply is in OFF state.")
+                break
 
 # start the server
 if __name__ == "__main__":
